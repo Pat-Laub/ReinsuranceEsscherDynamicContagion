@@ -7,7 +7,7 @@ from numba import njit
 from numba.typed import List
 from numba import types
 
-from scipy.integrate import cumtrapz
+from scipy.integrate import cumulative_trapezoid
 
 
 @njit()
@@ -569,11 +569,11 @@ def tilted_lambda_t_expectation(
 
     # Compute the first integral using the trapezoidal rule
     kappa_t = delta - new_mu_Gs[indices]
-    exp_integral = np.exp(-np.trapz(kappa_t, valid_time_points))
+    exp_integral = np.exp(-np.trapezoid(kappa_t, valid_time_points))
 
     # Compute the second integral using the trapezoidal rule
     integrand = new_rhos[indices] * new_mu_Hs[indices] + new_as[indices] * delta
-    last_integral = np.trapz(
+    last_integral = np.trapezoid(
         np.exp(np.cumsum(kappa_t) * dt) * integrand, valid_time_points
     )
 
@@ -632,8 +632,8 @@ def tilted_N_t_expectations(
     )
 
     # Compute the cumulative integral using the trapezoidal rule.
-    # cumtrapz returns an array with one fewer element unless we set initial=0.
-    N_t_means = cumtrapz(lambda_vals, time_grid, initial=0)
+    # cumulative_trapezoid returns an array with one fewer element unless we set initial=0.
+    N_t_means = cumulative_trapezoid(lambda_vals, time_grid, initial=0)
 
     return N_t_means
 
