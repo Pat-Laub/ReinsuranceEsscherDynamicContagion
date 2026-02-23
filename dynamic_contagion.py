@@ -613,7 +613,7 @@ def tilted_N_t_expectation(
     )
 
     # Use the trapezoidal rule for integration
-    integral_N = np.trapz(lambda_vals, valid_time_points)
+    integral_N = np.trapezoid(lambda_vals, valid_time_points)
 
     return integral_N
 
