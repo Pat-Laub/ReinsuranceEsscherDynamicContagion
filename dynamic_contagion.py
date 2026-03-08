@@ -397,38 +397,66 @@ def Nt_expectation(t, lambda_0, mu_H, rho, a, delta, mu_G):
         return lambda_0 * t + 0.5 * (mu_H * rho + a * delta) * t**2
 
 
-def tilted_dcp_intensities(t_start, time_grid, lambda_0, new_as, delta, T1, X, T2, Y):
+def compute_sde_background(time_grid, lambda_0, new_as, delta):
     """
-    Calculate the intensity of the Dynamic Contagion Process (DCP) over a time grid.
+    Compute the SDE-consistent deterministic background for the tilted intensity:
+        λ_0 e^{-δt} + δ ∫_0^t a(s) e^{-δ(t-s)} ds
 
     Args:
+        time_grid: Time points at which to evaluate.
+        lambda_0: Initial intensity at t=0.
+        new_as: Array of time-varying mean-reversion levels a(t).
+        delta: Rate of exponential decay.
+
+    Returns:
+        Array of background intensity values at each time point.
+    """
+    exp_decay = np.exp(-delta * time_grid)
+    integrand = new_as * np.exp(delta * time_grid)
+    cum_integral = cumulative_trapezoid(integrand, time_grid, initial=0)
+    return lambda_0 * exp_decay + delta * exp_decay * cum_integral
+
+
+def tilted_dcp_intensities(t_start, time_grid, lambda_0, new_as, delta, T1, X, T2, Y):
+    """
+    Calculate the intensity of the tilted DCP over a time grid using SDE-consistent dynamics.
+
+    Uses the convolution formula:
+        λ_t = λ_0 e^{-δt} + δ ∫_0^t a(s) e^{-δ(t-s)} ds + jump contributions
+
+    Args:
+        t_start: Time before which intensities are zero.
         time_grid: Time points at which to calculate the intensity.
         lambda_0: Initial intensity at t=0.
-        a: Constant mean-reverting level.
-        delta: Constant rate of exponential decay.
-        T1: Jump times for the Poisson point process.
-        X: Jump sizes for the Poisson point process.
-        T2: Jump times for the other point process.
-        Y: Jump sizes for the other point process.
+        new_as: Array of time-varying mean-reversion levels a(t).
+        delta: Rate of exponential decay.
+        T1: Jump times for the externally-excited point process.
+        X: Jump sizes for the externally-excited point process.
+        T2: Jump times for the self-excited point process.
+        Y: Jump sizes for the self-excited point process.
 
     Returns:
         The intensity of the DCP at each time point in time_grid.
     """
+    # SDE-consistent deterministic background
+    intensities = compute_sde_background(time_grid, lambda_0, new_as, delta)
 
-    if len(T1) == 0:
-        T1 = List.empty_list(types.float64)
-    if len(X) == 0:
-        X = List.empty_list(types.float64)
-    if len(T2) == 0:
-        T2 = List.empty_list(types.float64)
-    if len(Y) == 0:
-        Y = List.empty_list(types.float64)
+    # Zero out times before t_start
+    intensities[time_grid < t_start] = 0.0
 
-    intensities = np.zeros_like(time_grid)
-    for i, t in enumerate(time_grid):
-        if t < t_start:
-            continue
-        intensities[i] = dcp_intensity(t, lambda_0, new_as[i], delta, T1, X, T2, Y)
+    # Add externally-excited jump contributions (vectorized over grid)
+    T1_arr = np.asarray(T1, dtype=np.float64)
+    X_arr = np.asarray(X, dtype=np.float64)
+    for Xi, T1i in zip(X_arr, T1_arr):
+        mask = time_grid >= T1i
+        intensities[mask] += Xi * np.exp(-delta * (time_grid[mask] - T1i))
+
+    # Add self-excited jump contributions (vectorized over grid)
+    T2_arr = np.asarray(T2, dtype=np.float64)
+    Y_arr = np.asarray(Y, dtype=np.float64)
+    for Yj, T2j in zip(Y_arr, T2_arr):
+        mask = time_grid >= T2j
+        intensities[mask] += Yj * np.exp(-delta * (time_grid[mask] - T2j))
 
     return intensities
 
@@ -515,9 +543,7 @@ def simulate_tilted_dynamic_contagion_thinning(
         if delta_t > step:
             continue
 
-        lambda_t_current = dcp_intensity(
-            t, lambda_0, new_as[t_index], new_delta, T1, X, T2, Y
-        )
+        lambda_t_current = cox_intensities[t_index] + hawkes_intensities[t_index]
 
         assert lambda_t_current <= lambda_max
         if rg.random() < lambda_t_current / lambda_max:
